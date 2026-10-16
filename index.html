@@ -285,19 +285,31 @@
 </div>
 
 <script>
-/* 1. НАСТРОЙКИ */
-const TG_TOKEN   = '988881530:AAElIaLUezMAMD3i-BUOg8AnZqNE8gFHAJQ';
-const TG_CHAT_ID = '8988881530';
-const ADMIN_PASSWORD = 'svidanie2024';   // ← поменяйте на свой пароль
+/* ═══════════════════════════════════════════════════════════
+   1. НАСТРОЙКИ — ВПИШИТЕ СВОИ ЗНАЧЕНИЯ
+   ═══════════════════════════════════════════════════════════ */
 
-/* 2. КУХНИ */
+// Bin ID уже вписан — трогать не нужно
+const JSONBIN_ID  = '$2a$10$AvnQwVna47j3lFnqoccWGeBj3Y5R4DG3QeFLFCpGwWndavadnXtmy';
+
+// ⬇️ ВСТАВЬТЕ СЮДА X-Master-Key из jsonbin.io (Settings → API Keys)
+const JSONBIN_KEY = '';
+
+// Пароль от скрытой админки — поменяйте на свой
+const ADMIN_PASSWORD = 'svidanie2024';
+
+/* ═══════════════════════════════════════════════════════════
+   2. КУХНИ
+   ═══════════════════════════════════════════════════════════ */
 const CUISINES = [
   { id:'italian',  emoji:'🍝', name:'Итальянская', sub:'Паста, пицца, тирамису' },
   { id:'japanese', emoji:'🍣', name:'Японская',    sub:'Роллы, суши, рамэн' },
   { id:'georgian', emoji:'🫓', name:'Грузинская',  sub:'Хачапури, хинкали, вино' },
 ];
 
-/* 3. РЕСТОРАНЫ ТОЛЬЯТТИ */
+/* ═══════════════════════════════════════════════════════════
+   3. РЕСТОРАНЫ ТОЛЬЯТТИ
+   ═══════════════════════════════════════════════════════════ */
 const PLACES = {
   italian: [
     { name:'La famiglia',     meta:'ул. 40 лет Победы, 48' },
@@ -317,8 +329,6 @@ const PLACES = {
 };
 
 const TIME_CHIPS = ['18:00','18:30','19:00','19:30','20:00','20:30'];
-
-/* ЛОГИКА */
 const STORAGE_KEY = 'date_requests';
 const state = { cuisine:null, place:null, date:'', time:'', name:'', wishes:'' };
 
@@ -454,6 +464,9 @@ function renderSummary(){
     <div class="summary-row"><span>Время</span><span>${state.time}</span></div>`;
 }
 
+/* ═══════════════════════════════════════════════════════════
+   ОТПРАВКА ЗАЯВКИ
+   ═══════════════════════════════════════════════════════════ */
 document.getElementById('submitBtn').addEventListener('click', async () => {
   state.name   = document.getElementById('nameInput').value.trim();
   state.wishes = document.getElementById('wishesInput').value.trim();
@@ -474,8 +487,16 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
     name: state.name, wishes: state.wishes,
     createdAt: new Date().toISOString()
   };
-  saveRequest(request);
-  await sendToTelegram(request);
+
+  // 1) Локально (на случай, если облако недоступно)
+  try {
+    const all = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    all.unshift(request);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+  } catch(e){}
+
+  // 2) В облако jsonbin.io
+  await saveToCloud(request);
 
   setTimeout(() => {
     goTo('done');
@@ -484,36 +505,45 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
   }, 500);
 });
 
-function saveRequest(req){
-  try{
-    const all = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-    all.unshift(req);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
-  }catch(e){ console.warn('localStorage недоступен', e); }
-}
-
-async function sendToTelegram(req){
-  if (!TG_TOKEN || !TG_CHAT_ID) return;
-  const d = new Date(req.date + 'T00:00:00');
-  const dateStr = d.toLocaleDateString('ru-RU',
-    { day:'numeric', month:'long', year:'numeric', weekday:'long' });
-  const text =
-`💕 Новая заявка на свидание
-
-🍽 Кухня: ${esc(req.cuisineEmoji)} ${esc(req.cuisine)}
-📍 Место: ${esc(req.place)}
-${req.placeMeta ? '   ' + esc(req.placeMeta) + '\n' : ''}📅 Дата: ${dateStr}
-🕗 Время: ${esc(req.time)}
-👤 От: ${esc(req.name)}${req.wishes ? '\n💌 Пожелания: ' + esc(req.wishes) : ''}`;
-  try{
-    const r = await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
-      method:'POST', headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({ chat_id: TG_CHAT_ID, text, parse_mode:'HTML' })
+async function loadFromCloud(){
+  if (!JSONBIN_ID || !JSONBIN_KEY) return [];
+  try {
+    const r = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_ID}/latest`, {
+      headers: { 'X-Master-Key': JSONBIN_KEY }
     });
-    if (!r.ok) console.warn('Telegram ответил:', await r.text());
-  }catch(e){ console.warn('Не удалось отправить в Telegram', e); }
+    const data = await r.json();
+    return Array.isArray(data.record?.requests) ? data.record.requests : [];
+  } catch(e){
+    console.warn('Не удалось загрузить из облака', e);
+    return [];
+  }
 }
 
+async function saveToCloud(req){
+  if (!JSONBIN_ID || !JSONBIN_KEY){
+    console.warn('JSONBIN_ID или JSONBIN_KEY не заполнены — заявка сохранена только локально');
+    return;
+  }
+  try {
+    const current = await loadFromCloud();
+    current.unshift(req);
+    const r = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_ID}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Master-Key': JSONBIN_KEY
+      },
+      body: JSON.stringify({ requests: current })
+    });
+    if (!r.ok) console.warn('jsonbin ответил:', await r.text());
+  } catch(e){
+    console.warn('Не удалось сохранить в облако', e);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   КАЛЕНДАРЬ (.ics)
+   ═══════════════════════════════════════════════════════════ */
 document.getElementById('icsBtn').addEventListener('click', () => {
   const pad = n => String(n).padStart(2,'0');
   const fmt = dt => `${dt.getFullYear()}${pad(dt.getMonth()+1)}${pad(dt.getDate())}T${pad(dt.getHours())}${pad(dt.getMinutes())}00`;
@@ -534,6 +564,11 @@ document.getElementById('icsBtn').addEventListener('click', () => {
   a.click(); URL.revokeObjectURL(a.href);
 });
 
+/* ═══════════════════════════════════════════════════════════
+   АДМИНКА
+   ═══════════════════════════════════════════════════════════ */
+let adminTimer = null;
+
 function openAdmin(){
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById('admin').classList.add('active');
@@ -542,6 +577,7 @@ function openAdmin(){
   window.scrollTo({ top:0, behavior:'smooth' });
   if (sessionStorage.getItem('admin_ok') === '1') showRequests();
 }
+
 document.getElementById('adminEnter').addEventListener('click', () => {
   const v = document.getElementById('adminPass').value;
   if (v === ADMIN_PASSWORD){
@@ -555,32 +591,64 @@ document.getElementById('adminEnter').addEventListener('click', () => {
 document.getElementById('adminPass').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('adminEnter').click();
 });
-function showRequests(){
+
+async function showRequests(){
   document.getElementById('adminGate').style.display    = 'none';
   document.getElementById('adminList').style.display    = 'block';
   document.getElementById('adminActions').style.display = 'flex';
-  const all  = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+
   const list = document.getElementById('adminList');
+  list.innerHTML = '<p class="hint">Загружаю заявки…</p>';
+
+  // Сначала облако, если не вышло — локальные
+  let all = await loadFromCloud();
   if (!all.length){
-    list.innerHTML = '<p class="hint">Пока заявок нет. Как только она оставит заявку — она появится здесь.</p>';
-    return;
+    all = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
   }
-  list.innerHTML = all.map(r => {
-    const d = new Date(r.date + 'T00:00:00');
-    const dateStr = d.toLocaleDateString('ru-RU', { day:'numeric', month:'long', year:'numeric' });
-    const created = new Date(r.createdAt).toLocaleString('ru-RU');
-    return `<div class="req">
-      <b>${esc(r.cuisineEmoji || '')} ${esc(r.cuisine)}</b> · ${esc(r.place)}<br>
-      📅 ${dateStr} в ${esc(r.time)}<br>
-      👤 ${esc(r.name)}${r.wishes ? `<br>💌 ${esc(r.wishes)}` : ''}
-      <div class="req-time">Оставлена: ${created}</div></div>`;
-  }).join('');
+
+  if (!all.length){
+    list.innerHTML = '<p class="hint">Пока заявок нет. Как только она оставит заявку — она появится здесь (обновите страницу).</p>';
+  } else {
+    list.innerHTML = all.map(r => {
+      const d = new Date(r.date + 'T00:00:00');
+      const dateStr = d.toLocaleDateString('ru-RU', { day:'numeric', month:'long', year:'numeric' });
+      const created = new Date(r.createdAt).toLocaleString('ru-RU');
+      return `<div class="req">
+        <b>${esc(r.cuisineEmoji || '')} ${esc(r.cuisine)}</b> · ${esc(r.place)}<br>
+        📅 ${dateStr} в ${esc(r.time)}<br>
+        👤 ${esc(r.name)}${r.wishes ? `<br>💌 ${esc(r.wishes)}` : ''}
+        <div class="req-time">Оставлена: ${created}</div></div>`;
+    }).join('');
+  }
+
+  // Автообновление раз в 15 сек, пока админка открыта
+  clearTimeout(adminTimer);
+  adminTimer = setTimeout(() => {
+    if (document.getElementById('admin').classList.contains('active')){
+      showRequests();
+    }
+  }, 15000);
 }
-document.getElementById('adminClear').addEventListener('click', () => {
-  if (confirm('Удалить все заявки из этого браузера?')){
-    localStorage.removeItem(STORAGE_KEY); showRequests();
+
+document.getElementById('adminClear').addEventListener('click', async () => {
+  if (confirm('Удалить все заявки?')){
+    localStorage.removeItem(STORAGE_KEY);
+    if (JSONBIN_ID && JSONBIN_KEY){
+      try {
+        await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_ID}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Master-Key': JSONBIN_KEY
+          },
+          body: JSON.stringify({ requests: [] })
+        });
+      } catch(e){}
+    }
+    showRequests();
   }
 });
+
 document.getElementById('secretDot').addEventListener('click', openAdmin);
 document.addEventListener('keydown', e => {
   if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'a'){
@@ -588,6 +656,9 @@ document.addEventListener('keydown', e => {
   }
 });
 
+/* ═══════════════════════════════════════════════════════════
+   ФОН — сердечки
+   ═══════════════════════════════════════════════════════════ */
 (function makeHearts(){
   const wrap = document.getElementById('hearts');
   const symbols = ['💕','🤍','💛','🌸','✨','💗'];
@@ -603,6 +674,9 @@ document.addEventListener('keydown', e => {
   }
 })();
 
+/* ═══════════════════════════════════════════════════════════
+   СТАРТ
+   ═══════════════════════════════════════════════════════════ */
 renderCuisines();
 initDate();
 goTo('welcome');
