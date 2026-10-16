@@ -193,6 +193,7 @@
     <div class="step-dot" data-step="2"></div>
     <div class="step-dot" data-step="3"></div>
     <div class="step-dot" data-step="4"></div>
+    <div class="step-dot" data-step="5"></div>
   </div>
 
   <section class="screen active" id="screen-welcome">
@@ -208,7 +209,7 @@
   </section>
 
   <section class="screen" id="screen-cuisine">
-    <span class="eyebrow">Шаг 1 из 4</span>
+    <span class="eyebrow">Шаг 1 из 5</span>
     <h2>Что сегодня хочется?</h2>
     <p class="lead">Выбери настроение — под него подберём место.</p>
     <div class="grid" id="cuisineGrid"></div>
@@ -216,15 +217,23 @@
   </section>
 
   <section class="screen" id="screen-place">
-    <span class="eyebrow">Шаг 2 из 4</span>
+    <span class="eyebrow">Шаг 2 из 5</span>
     <h2>Куда пойдём?</h2>
     <p class="lead" id="placeLead">Хорошие места в Тольятти.</p>
     <div class="place-list" id="placeList"></div>
     <div class="actions"><button class="btn btn-primary" id="placeNext" disabled>Дальше →</button></div>
   </section>
 
+  <section class="screen" id="screen-seat">
+    <span class="eyebrow">Шаг 3 из 5</span>
+    <h2>Где сидим?</h2>
+    <p class="lead">Выбери, где нам будет уютнее всего.</p>
+    <div class="grid" id="seatGrid"></div>
+    <div class="actions"><button class="btn btn-primary" id="seatNext" disabled>Дальше →</button></div>
+  </section>
+
   <section class="screen" id="screen-date">
-    <span class="eyebrow">Шаг 3 из 4</span>
+    <span class="eyebrow">Шаг 4 из 5</span>
     <h2>Когда нам удобно?</h2>
     <p class="lead">Выбери день и время — я забронирую.</p>
     <div class="row">
@@ -236,7 +245,7 @@
   </section>
 
   <section class="screen" id="screen-final">
-    <span class="eyebrow">Шаг 4 из 4</span>
+    <span class="eyebrow">Шаг 5 из 5</span>
     <h2>Последний штрих</h2>
     <p class="lead">Проверь детали и оставь заявку — я её увижу.</p>
     <div class="summary" id="summary"></div>
@@ -286,16 +295,16 @@
 
 <script>
 /* ═══════════════════════════════════════════════════════════
-   1. НАСТРОЙКИ — ВПИШИТЕ СВОИ ЗНАЧЕНИЯ
+   1. НАСТРОЙКИ
    ═══════════════════════════════════════════════════════════ */
 
-// Bin ID уже вписан — трогать не нужно
+// Bin ID из jsonbin.io (трогать не нужно)
 const JSONBIN_ID  = '6ad1c02aac6210605a364208';
 
-// ⬇️ ВСТАВЬТЕ СЮДА X-Master-Key из jsonbin.io (Settings → API Keys)
-const JSONBIN_KEY = '$2a$10$AvnQwVna47j3lFnqoccWGeBj3Y5R4DG3QeFLFCpGwWndavadnXtmy';
+// ⬇️ ВСТАВЬТЕ СЮДА X-Master-Key из jsonbin.io (API KEYS → X-MASTER-KEY → Copy)
+const JSONBIN_KEY = '';
 
-// Пароль от скрытой админки — поменяйте на свой
+// Пароль от скрытой админки
 const ADMIN_PASSWORD = 'svidanie2024';
 
 /* ═══════════════════════════════════════════════════════════
@@ -328,13 +337,23 @@ const PLACES = {
   ],
 };
 
+/* ═══════════════════════════════════════════════════════════
+   4. МЕСТА В ЗАЛЕ
+   ═══════════════════════════════════════════════════════════ */
+const SEATS = [
+  { id:'hall',   emoji:'🪑', name:'В зале',    sub:'Уютная атмосфера внутри' },
+  { id:'window', emoji:'🪟', name:'У окна',    sub:'Свет, вид, романтика' },
+  { id:'out',    emoji:'🌿', name:'На улице',  sub:'Свежий воздух, веранда' },
+  { id:'any',    emoji:'✨', name:'Не важно',  sub:'Пусть решает ресторан' },
+];
+
 const TIME_CHIPS = ['18:00','18:30','19:00','19:30','20:00','20:30'];
 const STORAGE_KEY = 'date_requests';
-const state = { cuisine:null, place:null, date:'', time:'', name:'', wishes:'' };
+const state = { cuisine:null, place:null, seat:null, date:'', time:'', name:'', wishes:'' };
 
 const SCREENS = {
   welcome:'screen-welcome', cuisine:'screen-cuisine', place:'screen-place',
-  date:'screen-date', final:'screen-final', done:'screen-done'
+  seat:'screen-seat', date:'screen-date', final:'screen-final', done:'screen-done'
 };
 
 function localISO(d){
@@ -348,12 +367,12 @@ function esc(s){
 function goTo(name){
   Object.values(SCREENS).forEach(id => document.getElementById(id).classList.remove('active'));
   document.getElementById(SCREENS[name]).classList.add('active');
-  const s = ({ welcome:0, cuisine:1, place:2, date:3, final:4, done:4 })[name] || 0;
+  const s = ({ welcome:0, cuisine:1, place:2, seat:3, date:4, final:5, done:5 })[name] || 0;
   document.getElementById('progress').classList.toggle('show', s > 0);
   document.querySelectorAll('.step-dot').forEach(d => {
     d.classList.toggle('done', Number(d.dataset.step) <= s);
   });
-  const order = ['welcome','cuisine','place','date','final'];
+  const order = ['welcome','cuisine','place','seat','date','final'];
   document.getElementById('backBtn').classList.toggle('show', order.indexOf(name) > 0);
   window.scrollTo({ top:0, behavior:'smooth' });
 }
@@ -361,12 +380,13 @@ function goTo(name){
 document.getElementById('backBtn').addEventListener('click', () => {
   const active = document.querySelector('.screen.active').id;
   const map = {
-    'screen-cuisine':'welcome', 'screen-place':'cuisine',
-    'screen-date':'place',      'screen-final':'date'
+    'screen-cuisine':'welcome', 'screen-place':'cuisine', 'screen-seat':'place',
+    'screen-date':'seat',       'screen-final':'date'
   };
   if (map[active]) goTo(map[active]);
 });
 
+/* ── Кухни ── */
 function renderCuisines(){
   const grid = document.getElementById('cuisineGrid');
   grid.innerHTML = '';
@@ -377,7 +397,7 @@ function renderCuisines(){
       <div class="card-title">${c.name}</div>
       <div class="card-sub">${c.sub}</div>`;
     btn.addEventListener('click', () => {
-      state.cuisine = c.id; state.place = null;
+      state.cuisine = c.id; state.place = null; state.seat = null;
       grid.querySelectorAll('.card').forEach(x => x.classList.remove('selected'));
       btn.classList.add('selected');
       document.getElementById('cuisineNext').disabled = false;
@@ -390,6 +410,7 @@ document.getElementById('cuisineNext').addEventListener('click', () => {
   renderPlaces(); goTo('place');
 });
 
+/* ── Рестораны ── */
 function renderPlaces(){
   const list = document.getElementById('placeList');
   const cuisine = CUISINES.find(c => c.id === state.cuisine);
@@ -416,8 +437,35 @@ function renderPlaces(){
   document.getElementById('placeNext').disabled = true;
 }
 
-document.getElementById('placeNext').addEventListener('click', () => goTo('date'));
+document.getElementById('placeNext').addEventListener('click', () => {
+  renderSeats(); goTo('seat');
+});
 
+/* ── Места в зале ── */
+function renderSeats(){
+  const grid = document.getElementById('seatGrid');
+  grid.innerHTML = '';
+  SEATS.forEach(s => {
+    const btn = document.createElement('button');
+    btn.className = 'card';
+    btn.innerHTML = `<span class="card-emoji">${s.emoji}</span>
+      <div class="card-title">${s.name}</div>
+      <div class="card-sub">${s.sub}</div>`;
+    if (state.seat && state.seat.id === s.id) btn.classList.add('selected');
+    btn.addEventListener('click', () => {
+      state.seat = s;
+      grid.querySelectorAll('.card').forEach(x => x.classList.remove('selected'));
+      btn.classList.add('selected');
+      document.getElementById('seatNext').disabled = false;
+    });
+    grid.appendChild(btn);
+  });
+  document.getElementById('seatNext').disabled = !state.seat;
+}
+
+document.getElementById('seatNext').addEventListener('click', () => goTo('date'));
+
+/* ── Дата и время ── */
 function initDate(){
   const dateInput = document.getElementById('dateInput');
   dateInput.min = localISO(new Date());
@@ -452,6 +500,7 @@ document.getElementById('dateNext').addEventListener('click', () => {
   renderSummary(); goTo('final');
 });
 
+/* ── Сводка ── */
 function renderSummary(){
   const cuisine = CUISINES.find(c => c.id === state.cuisine);
   const d = state.date ? new Date(state.date + 'T00:00:00') : null;
@@ -460,13 +509,12 @@ function renderSummary(){
   document.getElementById('summary').innerHTML = `
     <div class="summary-row"><span>Кухня</span><span>${cuisine.emoji} ${cuisine.name}</span></div>
     <div class="summary-row"><span>Место</span><span>${state.place ? state.place.name : '—'}</span></div>
+    <div class="summary-row"><span>Где сидим</span><span>${state.seat ? state.seat.emoji + ' ' + state.seat.name : '—'}</span></div>
     <div class="summary-row"><span>Дата</span><span>${dateStr}</span></div>
     <div class="summary-row"><span>Время</span><span>${state.time}</span></div>`;
 }
 
-/* ═══════════════════════════════════════════════════════════
-   ОТПРАВКА ЗАЯВКИ
-   ═══════════════════════════════════════════════════════════ */
+/* ── Отправка заявки ── */
 document.getElementById('submitBtn').addEventListener('click', async () => {
   state.name   = document.getElementById('nameInput').value.trim();
   state.wishes = document.getElementById('wishesInput').value.trim();
@@ -483,19 +531,21 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
     cuisine: cuisine.name, cuisineEmoji: cuisine.emoji,
     place: state.place ? state.place.name : '—',
     placeMeta: state.place ? state.place.meta : '',
+    seat: state.seat ? state.seat.name : '—',
+    seatEmoji: state.seat ? state.seat.emoji : '',
     date: state.date, time: state.time,
     name: state.name, wishes: state.wishes,
     createdAt: new Date().toISOString()
   };
 
-  // 1) Локально (на случай, если облако недоступно)
+  // Локально
   try {
     const all = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
     all.unshift(request);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
   } catch(e){}
 
-  // 2) В облако jsonbin.io
+  // В облако
   await saveToCloud(request);
 
   setTimeout(() => {
@@ -541,9 +591,7 @@ async function saveToCloud(req){
   }
 }
 
-/* ═══════════════════════════════════════════════════════════
-   КАЛЕНДАРЬ (.ics)
-   ═══════════════════════════════════════════════════════════ */
+/* ── Календарь (.ics) ── */
 document.getElementById('icsBtn').addEventListener('click', () => {
   const pad = n => String(n).padStart(2,'0');
   const fmt = dt => `${dt.getFullYear()}${pad(dt.getMonth()+1)}${pad(dt.getDate())}T${pad(dt.getHours())}${pad(dt.getMinutes())}00`;
@@ -564,9 +612,7 @@ document.getElementById('icsBtn').addEventListener('click', () => {
   a.click(); URL.revokeObjectURL(a.href);
 });
 
-/* ═══════════════════════════════════════════════════════════
-   АДМИНКА
-   ═══════════════════════════════════════════════════════════ */
+/* ── Админка ── */
 let adminTimer = null;
 
 function openAdmin(){
@@ -600,7 +646,6 @@ async function showRequests(){
   const list = document.getElementById('adminList');
   list.innerHTML = '<p class="hint">Загружаю заявки…</p>';
 
-  // Сначала облако, если не вышло — локальные
   let all = await loadFromCloud();
   if (!all.length){
     all = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
@@ -613,15 +658,15 @@ async function showRequests(){
       const d = new Date(r.date + 'T00:00:00');
       const dateStr = d.toLocaleDateString('ru-RU', { day:'numeric', month:'long', year:'numeric' });
       const created = new Date(r.createdAt).toLocaleString('ru-RU');
+      const seatLine = r.seat ? `<br>🪑 ${esc(r.seatEmoji || '')} ${esc(r.seat)}` : '';
       return `<div class="req">
-        <b>${esc(r.cuisineEmoji || '')} ${esc(r.cuisine)}</b> · ${esc(r.place)}<br>
+        <b>${esc(r.cuisineEmoji || '')} ${esc(r.cuisine)}</b> · ${esc(r.place)}${seatLine}<br>
         📅 ${dateStr} в ${esc(r.time)}<br>
         👤 ${esc(r.name)}${r.wishes ? `<br>💌 ${esc(r.wishes)}` : ''}
         <div class="req-time">Оставлена: ${created}</div></div>`;
     }).join('');
   }
 
-  // Автообновление раз в 15 сек, пока админка открыта
   clearTimeout(adminTimer);
   adminTimer = setTimeout(() => {
     if (document.getElementById('admin').classList.contains('active')){
@@ -656,9 +701,7 @@ document.addEventListener('keydown', e => {
   }
 });
 
-/* ═══════════════════════════════════════════════════════════
-   ФОН — сердечки
-   ═══════════════════════════════════════════════════════════ */
+/* ── Фон ── */
 (function makeHearts(){
   const wrap = document.getElementById('hearts');
   const symbols = ['💕','🤍','💛','🌸','✨','💗'];
@@ -674,9 +717,7 @@ document.addEventListener('keydown', e => {
   }
 })();
 
-/* ═══════════════════════════════════════════════════════════
-   СТАРТ
-   ═══════════════════════════════════════════════════════════ */
+/* ── Старт ── */
 renderCuisines();
 initDate();
 goTo('welcome');
